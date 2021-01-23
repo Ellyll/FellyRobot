@@ -1,0 +1,10 @@
+{
+  "Host": "irc.chat.twitch.tv",
+  "Port": 6697,
+  "Nick": "mytwichbotusernameinlowercase",
+  "User": "mytwichbotusernameinlowercase",
+  "Password": "oauth:myoathtoken",
+  "Channels": [
+    "#mychannelnameinlowercase"
+  ]
+}
