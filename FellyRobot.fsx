@@ -16,6 +16,7 @@ type Settings =
         User: string
         Password: string
         Channels: string[]
+        AdminUsers: string[]
     }
 
 type Operator =
@@ -36,7 +37,9 @@ let host = DnsEndPoint(settings.Host, settings.Port)
 let nick, user = settings.Nick, settings.User
 let channels = settings.Channels
 let password = settings.Password
+let admins = settings.AdminUsers
 
+let mutable stopNow = false
 
 let isCommand (message: string) (command: string) =
     if String.IsNullOrWhiteSpace(message) then
@@ -123,10 +126,22 @@ let roll (sender: string) (target: string) (message: string) =
     | None ->
         Some <| IrcMessage.privmsg channels "Sorry I didn't understand that roll expression"
 
+let stopbot (sender: string) (target: string) (message: string) =
+    let isAdmin = admins |> Seq.contains sender
+    if isAdmin then
+        printfn "Received !stopbot command from %s" sender
+        stopNow <- true
+        Some <| IrcMessage.privmsg channels (sprintf "Goodbye cruel world, I have been slain by the evil @%s!" sender)
+    else
+        printfn "Received !stopbot command but %s was not in the admin list" sender
+        Some <| IrcMessage.privmsg channels (sprintf "Naughty @%s tried to stop the bot but they're not an admin!" sender)
+
+
 let commands =
     [
         ("!hello", hello)
         ("!roll", roll)
+        ("!stopbot", stopbot)
     ]
     |> Map.ofList
 
@@ -163,7 +178,9 @@ con.MessageReceived
 do con.SendMessage (IrcMessage.join channels)
 do con.SendMessage (IrcMessage.privmsg channels "Hello, world!")
 
-printfn "Running! Press any key"
-System.Console.ReadKey() |> ignore
+printfn "Running!"
+while (not stopNow) do
+    (System.Threading.Thread.Sleep(100))
+
 do con.SendMessage (IrcMessage.part channels)
 printfn "Finished!"

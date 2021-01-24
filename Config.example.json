@@ -6,5 +6,8 @@
   "Password": "oauth:myoathtoken",
   "Channels": [
     "#mychannelnameinlowercase"
+  ],
+  "AdminUsers": [
+    "mytwitchusernameinlowercase"
   ]
 }
