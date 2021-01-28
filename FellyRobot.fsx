@@ -1,5 +1,7 @@
 #r "nuget:FSharp.Json"
 #r "nuget:Irc.FSharp"
+#r "nuget:Serilog"
+#r "nuget:Serilog.Sinks.Console"
 
 open System
 open System.IO
@@ -7,6 +9,7 @@ open System.Net
 open System.Text.RegularExpressions
 open Irc.FSharp
 open FSharp.Json
+open Serilog
 
 type Settings =
     {
@@ -30,6 +33,12 @@ type Token =
     // | OpenParen
     // | CloseParen
 
+let log = 
+    LoggerConfiguration().WriteTo.Console().CreateLogger()
+
+log.Information("Starting")
+
+
 // Get configuration
 let json = File.ReadAllText("Config.json")
 let settings = Json.deserialize<Settings> json
@@ -38,6 +47,8 @@ let nick, user = settings.Nick, settings.User
 let channels = settings.Channels
 let password = settings.Password
 let admins = settings.AdminUsers
+
+log.Information("Config loaded")
 
 let mutable stopNow = false
 
@@ -66,11 +77,11 @@ let removeAllWhiteSpace str =
 
 // Command functions
 let hello (sender: string) (target: string) (message: string) =
-    printfn "Received !hello command"
+    log.Information("Received !hello command from {sender}", sender)
     Some <| IrcMessage.privmsg channels (sprintf "Hello %s!" sender)
 
 let roll (sender: string) (target: string) (message: string) =
-    printfn "Received !roll command"
+    log.Information("Received !roll command from {sender}", sender)
     let roll = message |> popWord |> snd |> removeAllWhiteSpace
     let regStartsWithDice = Regex(@"^([0-9]*)d([0-9]+)([^0-9].*)?$")
     let regStartsWithNumber = Regex(@"^([0-9]+)([^0-9].*)?$")
@@ -116,7 +127,7 @@ let roll (sender: string) (target: string) (message: string) =
             | (Dice (n,v))::rem -> loop (rollDice n v) rem
             | [] -> Some total
             | _ ->
-                printfn "Unexpected token pattern: %A" remaining
+                log.Warning(sprintf "Unexpected token pattern: %A" remaining)
                 None
 
         loop 0 tokens
@@ -129,11 +140,11 @@ let roll (sender: string) (target: string) (message: string) =
 let stopbot (sender: string) (target: string) (message: string) =
     let isAdmin = admins |> Seq.contains sender
     if isAdmin then
-        printfn "Received !stopbot command from %s" sender
+        log.Information("Received !stopbot command from {sender}", sender)
         stopNow <- true
         Some <| IrcMessage.privmsg channels (sprintf "Goodbye cruel world, I have been slain by the evil @%s!" sender)
     else
-        printfn "Received !stopbot command but %s was not in the admin list" sender
+        log.Information("Received !stopbot command but {sender} was not in the admin list", sender)
         Some <| IrcMessage.privmsg channels (sprintf "Naughty @%s tried to stop the bot but they're not an admin!" sender)
 
 
@@ -145,16 +156,16 @@ let commands =
     ]
     |> Map.ofList
 
-printfn "Opening connection...."
+log.Information("Opening connection...")
 let con = IrcConnection(host, nick, user, true)
-printfn "Connection opened!"
+log.Information("Connection opened!")
 do con.SendMessage (IrcMessage.pass password)
 
 // Handle incomming messages
 con.MessageReceived
 |> Event.choose(function
     | PRIVMSG(Nickname sender, target, message) -> 
-        printfn "Message 1 received: sender=\"%s\" target=\"%s\" \"%s\"" sender target message
+        log.Debug(sprintf "Message 1 received: sender=\"%s\" target=\"%s\" \"%s\"" sender target message)
         // Check if messages is a command, if it is execute it
         let commandFunc =
             commands |> Map.tryPick (fun commandName commandFunc ->
@@ -167,10 +178,10 @@ con.MessageReceived
         | None -> None
 
     | PING(_, server1, _) ->
-        printfn "PING received from: server1=%s, sending PONG" server1
+        log.Debug(sprintf "PING received from: server1=%s, sending PONG" server1)
         Some <| IrcMessage.pong server1
     | msg ->
-        printfn "Msg: %A" msg
+        log.Debug(sprintf "Unknown messages received: %A" msg)
         None)
     //| _ -> None)
 |> Event.add(con.SendMessage)
@@ -178,9 +189,9 @@ con.MessageReceived
 do con.SendMessage (IrcMessage.join channels)
 do con.SendMessage (IrcMessage.privmsg channels "Hello, world!")
 
-printfn "Running!"
+log.Information("Running")
 while (not stopNow) do
     (System.Threading.Thread.Sleep(100))
 
 do con.SendMessage (IrcMessage.part channels)
-printfn "Finished!"
+log.Information("Finished")
