@@ -34,7 +34,10 @@ type Token =
     // | CloseParen
 
 let log = 
-    LoggerConfiguration().WriteTo.Console().CreateLogger()
+    LoggerConfiguration()
+        .MinimumLevel.Debug()
+        .WriteTo.Console()
+        .CreateLogger()
 
 log.Information("Starting")
 
@@ -67,7 +70,8 @@ let channels = settings.Channels
 let password = settings.Password
 let admins = settings.AdminUsers
 
-log.Information("Config loaded")
+log.Information("Config loaded Host={Host} Nick={Nick} User={User} Channels={Channels} AdminUsers={AdminUsers}",
+                host, nick, user, channels, admins)
 
 let mutable stopNow = false
 
@@ -179,6 +183,7 @@ log.Information("Opening connection...")
 let con = IrcConnection(host, nick, user, true)
 log.Information("Connection opened!")
 do con.SendMessage (IrcMessage.pass password)
+log.Information("Password sent")
 
 // Handle incomming messages
 con.MessageReceived
@@ -205,7 +210,9 @@ con.MessageReceived
     //| _ -> None)
 |> Event.add(con.SendMessage)
 
+log.Information("Joining {Channels}", channels)
 do con.SendMessage (IrcMessage.join channels)
+log.Information("Sending Hello, world!")
 do con.SendMessage (IrcMessage.privmsg channels "Hello, world!")
 
 log.Information("Running")
