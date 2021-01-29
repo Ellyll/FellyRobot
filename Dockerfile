@@ -7,4 +7,4 @@ COPY Config.json .
 
 RUN apt-get update && apt-get install -y curl
 
-CMD dotnet fsi /app/FellyRobot.fsx
+ENTRYPOINT [ "dotnet", "fsi", "FellyRobot.fsx" ]
