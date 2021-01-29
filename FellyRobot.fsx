@@ -40,8 +40,27 @@ log.Information("Starting")
 
 
 // Get configuration
-let json = File.ReadAllText("Config.json")
-let settings = Json.deserialize<Settings> json
+let settings =
+    let initalSettings =
+        if (IO.File.Exists("Config.json")) then
+            let json = File.ReadAllText("Config.json")
+            Json.deserialize<Settings> json
+        else
+            { Host = "localhost" ; Port = 6697 ; Nick = "" ; User = "" ; Password = "" ; Channels = [||] ; AdminUsers = [||] }
+    // Merge environment variables
+    let env = System.Environment.GetEnvironmentVariables()
+              |> Seq.cast<System.Collections.DictionaryEntry>
+              |> Seq.map (fun d -> d.Key :?> string, d.Value :?> string)
+              |> Map.ofSeq
+    initalSettings
+    |> fun s -> match env |> Map.tryFind "Host" with | Some h -> {s with Host = h } | _ -> s
+    |> fun s -> match env |> Map.tryFind "Port" with | Some p -> {s with Port = (Int32.Parse(p)) } | _ -> s
+    |> fun s -> match env |> Map.tryFind "Nick" with | Some n -> {s with Nick = n } | _ -> s
+    |> fun s -> match env |> Map.tryFind "User" with | Some u -> {s with User = u } | _ -> s
+    |> fun s -> match env |> Map.tryFind "Password" with | Some p -> {s with Password = p } | _ -> s
+    |> fun s -> match env |> Map.tryFind "Channels" with | Some ch -> {s with Channels = ch.Split(',') } | _ -> s
+    |> fun s -> match env |> Map.tryFind "AdminUsers" with | Some au -> {s with AdminUsers = au.Split(',') } | _ -> s
+
 let host = DnsEndPoint(settings.Host, settings.Port)
 let nick, user = settings.Nick, settings.User
 let channels = settings.Channels
