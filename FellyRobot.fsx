@@ -99,6 +99,10 @@ let removeAllWhiteSpace str =
     Regex.Replace(str, @"\s+", "")
 
 // Command functions
+let fellyrobot (sender: string) (target: string) (message: string) =
+    log.Information("Received !fellyrobot command from {sender}", sender)
+    Some <| IrcMessage.privmsg channels (sprintf "You can find me on GitHub at https://github.com/Ellyll/FellyRobot")
+
 let hello (sender: string) (target: string) (message: string) =
     log.Information("Received !hello command from {sender}", sender)
     Some <| IrcMessage.privmsg channels (sprintf "Hello %s!" sender)
@@ -173,6 +177,7 @@ let stopbot (sender: string) (target: string) (message: string) =
 
 let commands =
     [
+        ("!fellyrobot", fellyrobot)
         ("!hello", hello)
         ("!roll", roll)
         ("!stopbot", stopbot)
