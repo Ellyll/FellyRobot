@@ -51,6 +51,13 @@ type ServerState =
         Connection: IrcConnection option
     }
 
+type Message =
+    | Start
+    | Stop
+    | Receive of IrcMessage
+
+
+
 let log = 
     LoggerConfiguration()
         .MinimumLevel.Debug()
@@ -214,44 +221,6 @@ let connect settings serverState =
     { serverState' with ConnectionState = Connected ; Connection = Some con }
 
 
-
-
-
-// Handle incomming messages
-// con.MessageReceived
-// |> Event.choose(function
-//     | PRIVMSG(Nickname sender, target, message) -> 
-//         log.Debug(sprintf "Message 1 received: sender=\"%s\" target=\"%s\" \"%s\"" sender target message)
-//         // Check if messages is a command, if it is execute it
-//         let commandFunc =
-//             commands |> Map.tryPick (fun commandName commandFunc ->
-//             if isCommand message commandName then
-//                 Some commandFunc
-//             else
-//                 None )
-//         match commandFunc with
-//         | Some fn -> fn sender target message
-//         | None -> None
-
-//     | PING(_, server1, _) ->
-//         log.Debug(sprintf "PING received from: server1=%s, sending PONG" server1)
-//         Some <| IrcMessage.pong server1
-//     | msg ->
-//         log.Debug(sprintf "Unknown messages received: %A" msg)
-//         None)
-//     //| _ -> None)
-// |> Event.add(con.SendMessage)
-
-// log.Information("Joining {Channels}", channels)
-// do con.SendMessage (IrcMessage.join channels)
-// log.Information("Sending Hello, world!")
-// do con.SendMessage (IrcMessage.privmsg channels "Hello, world!")
-
-type Message =
-    | Start
-    | Stop
-    | Receive of IrcMessage
-
 let processor =
     MailboxProcessor.Start (fun inbox ->
         let rec loop (serverState: ServerState) =
@@ -336,5 +305,4 @@ processor.Post Start
 while (not stopNow) do
     (System.Threading.Thread.Sleep(100))
 
-//do con.SendMessage (IrcMessage.part channels)
 log.Information("Finished")
