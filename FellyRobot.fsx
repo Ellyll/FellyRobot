@@ -36,6 +36,7 @@ type Token =
 type ConnectionState =
     | Starting
     | Connecting
+    | Reconnecting
     | Connected
     | Joining
     | Joined
@@ -46,6 +47,7 @@ type ConnectionState =
 type ServerState =
     {
         ConnectionState: ConnectionState
+        ConnectionStartedTime: DateTime option
         LastMessageReceived: DateTime option
         LastPingSent: DateTime option        
         Connection: IrcConnection option
@@ -54,8 +56,9 @@ type ServerState =
 type Message =
     | Start
     | Stop
+    | Reconnect
+    | CheckIfReconnectNeeded
     | Receive of IrcMessage
-
 
 
 let log = 
@@ -218,8 +221,11 @@ let connect settings serverState =
     log.Information("Connection opened!")
     do con.SendMessage (IrcMessage.pass password)
     log.Information("Password sent")
-    { serverState' with ConnectionState = Connected ; Connection = Some con }
+    { serverState' with ConnectionState = Connected ; Connection = Some con ; ConnectionStartedTime = Some DateTime.UtcNow }
 
+let hasElapsed seconds (now: DateTime) (time: DateTime) =
+    let timespan = now - time
+    timespan.TotalSeconds > seconds
 
 let processor =
     MailboxProcessor.Start (fun inbox ->
@@ -253,6 +259,35 @@ let processor =
                         stopNow <- true
                         { serverState with ConnectionState = Stopping }
 
+                    | CheckIfReconnectNeeded ->
+                        if serverState.ConnectionState = Joined
+                            // We haven't recieve a message, or the last message was 10 minutes ago
+                            && (serverState.LastMessageReceived.IsNone || (serverState.LastMessageReceived |> Option.forall(hasElapsed 600.0 DateTime.UtcNow)))
+                            // And there is no ConnectionStartedTime or Connection started more than 30 seconds ago
+                            && (serverState.ConnectionStartedTime.IsNone || (serverState.ConnectionStartedTime |> Option.forall(hasElapsed 30.0 DateTime.Now)))
+                                then
+                            inbox.Post Reconnect
+                            { serverState with ConnectionState = Reconnecting }
+                        else
+                            serverState
+
+                    | Reconnect ->
+                        log.Information("Reconnecting")
+                        match serverState.Connection with
+                        | Some con ->
+                            // TODO: This is currently hanging :(
+                            log.Debug("Doing Reconnect()")
+                            do con.Reconnect()
+                            log.Information("Sending Password")
+                            do con.SendMessage (IrcMessage.pass password)
+                            log.Information("Joining {Channels}", channels)
+                            do con.SendMessage (IrcMessage.join channels)
+                            log.Information("Sending Hello, world! (again)")
+                            do con.SendMessage (IrcMessage.privmsg channels "Hello, world! (again)")
+                            { serverState with ConnectionState = Joined ; ConnectionStartedTime = Some DateTime.UtcNow }
+                        | None ->
+                            log.Debug("Reconnect received but there was no connection")
+                            serverState
 
                     | Receive ircMsg ->
                         match ircMsg with
@@ -284,13 +319,14 @@ let processor =
                             | msg ->
                                 log.Debug(sprintf "Unknown messages received: %A" msg)
                                 serverState
-
+                    |> fun st -> { st with LastMessageReceived = Some DateTime.UtcNow }
 
                 if serverState'.ConnectionState <> Stopping then
                     return! loop serverState'
             }
         loop  {
             ConnectionState = Starting
+            ConnectionStartedTime = Some DateTime.UtcNow
             LastMessageReceived = None
             LastPingSent = None
             Connection = None
@@ -303,6 +339,7 @@ log.Information("Running")
 processor.Post Start
 
 while (not stopNow) do
+    processor.Post CheckIfReconnectNeeded
     (System.Threading.Thread.Sleep(100))
 
 log.Information("Finished")
