@@ -59,6 +59,7 @@ type Message =
     | Reconnect
     | CheckIfReconnectNeeded
     | Receive of IrcMessage
+    | Send of IrcMessage
 
 
 let log = 
@@ -229,6 +230,15 @@ let hasElapsed seconds (now: DateTime) (time: DateTime) =
 
 let processor =
     MailboxProcessor.Start (fun inbox ->
+        let initialState =
+            {
+                ConnectionState = Starting
+                ConnectionStartedTime = Some DateTime.UtcNow
+                LastMessageReceived = None
+                LastPingSent = None
+                Connection = None
+            }
+
         let rec loop (serverState: ServerState) =
             async {
                 let! mboxMsg = inbox.Receive()
@@ -244,9 +254,9 @@ let processor =
                                     None)
                             |> Event.add(con.SendMessage)
                             log.Information("Joining {Channels}", channels)
-                            do con.SendMessage (IrcMessage.join channels)
+                            inbox.Post <| Send (IrcMessage.join channels)
                             log.Information("Sending Hello, world!")
-                            do con.SendMessage (IrcMessage.privmsg channels "Hello, world!")
+                            inbox.Post <| Send (IrcMessage.privmsg channels "Hello, world!")
                         )
                         { state with ConnectionState = Joined }
 
@@ -260,12 +270,20 @@ let processor =
                         { serverState with ConnectionState = Stopping }
 
                     | CheckIfReconnectNeeded ->
-                        if serverState.ConnectionState = Joined
-                            // We haven't recieve a message, or the last message was 10 minutes ago
-                            && (serverState.LastMessageReceived.IsNone || (serverState.LastMessageReceived |> Option.forall(hasElapsed 600.0 DateTime.UtcNow)))
-                            // And there is no ConnectionStartedTime or Connection started more than 30 seconds ago
-                            && (serverState.ConnectionStartedTime.IsNone || (serverState.ConnectionStartedTime |> Option.forall(hasElapsed 30.0 DateTime.Now)))
-                                then
+                        let isReconnectNeeded =
+                            serverState.ConnectionState = Joined &&
+                                (
+                                    let noMessage =
+                                        // We haven't recieve a message, or the last message was 10 minutes ago
+                                        serverState.LastMessageReceived.IsNone || (serverState.LastMessageReceived |> Option.forall(hasElapsed 600.0 DateTime.UtcNow))
+                                    let noOrOldConnection =
+                                        // And there is no ConnectionStartedTime or Connection started more than 30 seconds ago
+                                        serverState.ConnectionStartedTime.IsNone || (serverState.ConnectionStartedTime |> Option.forall(hasElapsed 30.0 DateTime.Now))
+                                    noMessage && noOrOldConnection
+                                )
+
+                        if isReconnectNeeded then
+                            log.Debug("Reconnect needed: LastMessageReceived={LastMessageReceived} ConnectionStartedTime={ConnectionStartedTime}", serverState.ConnectionStartedTime, serverState.ConnectionStartedTime)
                             inbox.Post Reconnect
                             { serverState with ConnectionState = Reconnecting }
                         else
@@ -273,20 +291,19 @@ let processor =
 
                     | Reconnect ->
                         log.Information("Reconnecting")
+
                         match serverState.Connection with
-                        | Some con ->
-                            // TODO: This is currently hanging :(
-                            log.Debug("Doing Reconnect()")
-                            do con.Reconnect()
-                            log.Information("Sending Password")
-                            do con.SendMessage (IrcMessage.pass password)
+                        | Some _ ->
+                            log.Debug("Doing Reconnect")
+                            let serverState' = connect settings serverState
                             log.Information("Joining {Channels}", channels)
-                            do con.SendMessage (IrcMessage.join channels)
-                            log.Information("Sending Hello, world! (again)")
-                            do con.SendMessage (IrcMessage.privmsg channels "Hello, world! (again)")
-                            { serverState with ConnectionState = Joined ; ConnectionStartedTime = Some DateTime.UtcNow }
+                            inbox.Post <| Send (IrcMessage.join channels)
+                            log.Information("Sending Hello, world!")
+                            inbox.Post <| Send (IrcMessage.privmsg channels "Hello, world!")
+                            { serverState' with ConnectionState = Joined }
                         | None ->
-                            log.Debug("Reconnect received but there was no connection")
+                            log.Debug("Reconnect received but there was no connection, doing Start")
+                            inbox.Post Start
                             serverState
 
                     | Receive ircMsg ->
@@ -316,21 +333,23 @@ let processor =
                                 let serverState' = { serverState with LastMessageReceived = Some (DateTime.Now) }
                                 serverState'.Connection |> Option.iter (fun con -> con.SendMessage <| IrcMessage.pong server1)
                                 serverState'
+                            | NOTICE(_,"*","Improperly formatted auth") ->
+                                log.Debug("Improperly formatted auth received, reconnecting")
+                                inbox.Post Reconnect
+                                serverState
                             | msg ->
                                 log.Debug(sprintf "Unknown messages received: %A" msg)
                                 serverState
-                    |> fun st -> { st with LastMessageReceived = Some DateTime.UtcNow }
+                        |> fun st -> { st with LastMessageReceived = Some DateTime.UtcNow }
 
+                    | Send ircMessage ->
+                        serverState.Connection |> Option.iter (fun con -> do con.SendMessage ircMessage)
+                        serverState
+                 
                 if serverState'.ConnectionState <> Stopping then
                     return! loop serverState'
             }
-        loop  {
-            ConnectionState = Starting
-            ConnectionStartedTime = Some DateTime.UtcNow
-            LastMessageReceived = None
-            LastPingSent = None
-            Connection = None
-        }
+        loop  initialState
 
     )
 
