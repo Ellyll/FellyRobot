@@ -3,3 +3,6 @@ env.list
 
 .fake
 .ionide
+
+obj
+bin
