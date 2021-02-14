@@ -3,6 +3,8 @@ env.list
 
 .fake
 .ionide
+.idea
+.vscode
 
 obj
 bin
