@@ -70,6 +70,7 @@ let main argv =
 
     let commands =
         [
+            ("!convert", convert)
             ("!fellyrobot", fellyrobot)
             ("!hello", hello)
             ("!roll", roll)
