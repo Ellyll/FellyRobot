@@ -83,8 +83,24 @@ let main argv =
         let serverState' = { serverState with ConnectionState = Connecting }
         Log.Information("Opening connection to {Host}:{Port}", settings.Host, settings.Port)
         let host = DnsEndPoint(settings.Host, settings.Port)
-        let con = IrcConnection(host, nick, user, true)
+        let con =
+            let mutable retries = 0
+            let mutable retrySleep = 100
+            let mutable maybeCon : IrcConnection option = None            
+            while Option.isNone maybeCon do
+                maybeCon <-
+                try
+                    Some (IrcConnection(host, nick, user, true))
+                with
+                    | ex ->
+                        retries <- retries + 1
+                        Log.Error(ex, "Connection failed, retrying for {Retries}th time in {RetrySleep} milliseconds", retries, retrySleep)
+                        (System.Threading.Thread.Sleep(retrySleep))
+                        retrySleep <- retrySleep * 2
+                        None
+            Option.get maybeCon
         Log.Information("Connection opened!")
+        Log.Debug("Connection.Connected: {Connected}", con.Connected)
         do con.SendMessage (IrcMessage.pass password)
         Log.Information("Password sent")
         { serverState' with ConnectionState = Connected ; Connection = Some con ; ConnectionStartedTime = Some DateTime.UtcNow }
