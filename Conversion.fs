@@ -24,6 +24,7 @@ type Mass =
     | Pound of float<lb>
     | Stone of float<st>
     | Ounce of float<oz>
+    | StonePoundOunce of float<st>*float<lb>*float<oz>
 
 type Measurement =
     | Temperature of Temperature
@@ -53,6 +54,13 @@ let convertKilogramToGram (mass: float<kg>) : float<g> = (float mass) * 1000.0<g
 let convertKilogramToOunce (mass: float<kg>) : float<oz> = ((float mass) / 0.028349523125) * 1.0<oz>
 let convertKilogramToPound (mass: float<kg>) : float<lb> = (float (mass |> convertKilogramToOunce))/16.0<lb^-1>
 let convertKilogramToStone (mass: float<kg>) : float<st> = (float (mass |> convertKilogramToPound))/14.0<st^-1>
+let convertKilogramToStonePoundOunce (mass: float<kg>) : float<st>*float<lb>*float<oz> =
+    let stones = convertKilogramToStone mass
+    let stonesFloored = stones |> float |> floor |> toStones
+    let pounds = (float (stones-stonesFloored))*14.0<lb>
+    let poundsFloored = pounds |> float |> floor |> toPounds
+    let ounces = (float (pounds-poundsFloored))*16.0<oz>
+    (stonesFloored,poundsFloored,ounces)
 
 let convertTemperatureToK (temp: Temperature) : float<K> =
     match temp with
@@ -67,6 +75,8 @@ let convertMassToKilogram (mass: Mass) : float<kg> =
     | Stone st -> st |> convertStoneToKilogram
     | Pound lb -> lb |> convertPoundToKilogram
     | Ounce oz -> oz |> convertOunceToKilogram
+    | StonePoundOunce (st,lb,oz) ->
+        (convertStoneToKilogram st) + (convertPoundToKilogram lb) + (convertOunceToKilogram oz)
 
 let formatUnits (units: string) (value: float<_>) =
     sprintf "%s%s" (Math.Round((float value),2).ToString()) units
@@ -84,11 +94,32 @@ let formatMass (mass: Mass) : string =
     | Stone st ->    formatUnits "st" st
     | Pound lb ->    formatUnits "lb" lb
     | Ounce oz ->    formatUnits "oz" oz
+    | StonePoundOunce (st,lb,oz) ->
+        sprintf "%s %s %s" (formatUnits "st" st) (formatUnits "lb" lb) (formatUnits "oz" oz)
 
+let regGram = Regex(@"^\s*(\d+(\.\d+)?)\s*(st)\s*(\d+(\.\d+)?)\s*(lb)\s*(\d+(\.\d+)?)\s*(oz)\s*$")
+let (|StonesPoundsOunces|_|) input =
+    if regGram.IsMatch(input) then
+        let stoneResult, stoneValue = Double.TryParse(regGram.Replace(input, "$1"))
+        let poundResult, poundValue = Double.TryParse(regGram.Replace(input, "$4"))
+        let ounceResult, ounceValue = Double.TryParse(regGram.Replace(input, "$7"))
+        if stoneResult && poundResult && ounceResult then
+            let stone = stoneValue |> toStones
+            let pound = poundValue |> toPounds
+            let ounce = ounceValue |> toOunces
+            Some (stone,pound,ounce)
+        else
+            None
+    else
+        None
+
+// TODO: handle !convert 5st7lb6oz kg AND !convert 5st 7lb 6oz kg
 let regUnits = Regex(@"^\s*(\d+(\.\d+)?)\s*(\S+)\s*$")
 let tryParseUnit (str: string) : Measurement option =
     if not (regUnits.IsMatch(str)) then
-        None
+        match str with
+        | StonesPoundsOunces (st,lb,oz) -> Some <| Mass (StonePoundOunce (st,lb,oz))
+        | _ -> None
     else
         let valueString = regUnits.Replace(str, "$1")
         let unitString = regUnits.Replace(str, "$3")
@@ -171,6 +202,13 @@ let tryConvert (str: string) =
         | Some (Mass m) ->
             let st = m |> convertMassToKilogram |> convertKilogramToStone |> Stone
             Ok <| sprintf "%s is %s" (formatMass m) (formatMass st)
+        | _ -> Error errorMsg
+
+    | "st,lb,oz" ->
+        match tryParseUnit fromValue with
+        | Some (Mass m) ->
+            let stonePoundOunce = m |> convertMassToKilogram |> convertKilogramToStonePoundOunce |> StonePoundOunce
+            Ok <| sprintf "%s is %s" (formatMass m) (formatMass stonePoundOunce)
         | _ -> Error errorMsg
 
     | _ -> Error errorMsg
