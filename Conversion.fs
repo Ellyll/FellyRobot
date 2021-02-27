@@ -137,36 +137,12 @@ let (|SingularUnit|_|) input : Measurement option =
     else
         None        
 
-// TODO: handle !convert 5st7lb6oz kg AND !convert 5st 7lb 6oz kg
 let regUnits = Regex(@"^\s*(\d+(\.\d+)?)\s*(\S+)\s*$")
 let tryParseUnit (str: string) : Measurement option =
     match str with
     | SingularUnit (measurement) -> Some measurement
     | StonesPoundsOunces (st,lb,oz) -> Some <| Mass (StonePoundOunce (st,lb,oz))
     | _ -> None
-    // if not (regUnits.IsMatch(str)) then
-    //     match str with
-    //     | StonesPoundsOunces (st,lb,oz) -> Some <| Mass (StonePoundOunce (st,lb,oz))
-    //     | _ -> None
-    // else
-    //     let valueString = regUnits.Replace(str, "$1")
-    //     let unitString = regUnits.Replace(str, "$3")
-    //     let result, value = Double.TryParse(valueString)
-    //     if result then
-    //         match unitString with
-    //         // Temperature
-    //         | "f" | "F" -> Some <| Temperature (Fahrenheit (value |> degreesFahrenheit))
-    //         | "c" | "C" -> Some <| Temperature (Celsius (value |> degreesCelsius))
-    //         | "k" | "K" -> Some <| Temperature (Kelvin (value |> toKelvin))
-    //         // Mass
-    //         | "g" -> Some <| Mass (Gram (value |> toGrams))
-    //         | "kg" -> Some <| Mass (Kilogram (value |> toKilograms))
-    //         | "st" -> Some <| Mass (Stone (value |> toStones))
-    //         | "lb" -> Some <| Mass (Pound (value |> toPounds))
-    //         | "oz" -> Some <| Mass (Ounce (value |> toOunces))
-    //         | _ -> None
-    //     else
-    //         None
 
 let tryConvert (str: string) =
     let (toUnit, fromValue) = str |> popLastWord
